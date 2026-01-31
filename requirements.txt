@@ -1,0 +1,4 @@
+# Email GUI Application Requirements
+pandas>=1.3.0
+streamlit
+streamlit-quill
