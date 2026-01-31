@@ -476,6 +476,11 @@ with tab3:
                 st.markdown("### 🌍 Bulk Send")
                 st.write(f"Ready to send to **{len(df)} recipients**.")
                 
+                # Batch Configuration
+                with st.expander("⚙️ Batch Settings", expanded=False):
+                    batch_size = st.number_input("Emails per Batch", min_value=1, max_value=500, value=50)
+                    pause_seconds = st.number_input("Pause between Batches (seconds)", min_value=0, max_value=300, value=10)
+                
                 if st.button("🔥 Start Bulk Sending"):
                     if not password:
                         st.error("Please enter SMTP Password in Sidebar!")
@@ -490,27 +495,51 @@ with tab3:
                         status_text = st.empty()
                         results = []
                         
-                        for i, r in df.iterrows():
-                            # Get correct email and name
-                            target_email = r.get(email_col)
-                            target_name = r.get(name_col, '')
+                        total_emails = len(df)
+                        
+                        # Process in batches
+                        for batch_start in range(0, total_emails, batch_size):
+                            batch_end = min(batch_start + batch_size, total_emails)
+                            batch_df = df.iloc[batch_start:batch_end]
                             
-                            # Personalize
-                            p_curr_body = st.session_state.get('email_body', '')
-                            p_curr_sub = email_subject.replace("{Name}", str(target_name))
-                            for col in df.columns:
-                                p_curr_body = p_curr_body.replace(f"{{{col}}}", str(r[col]))
+                            current_batch_num = (batch_start // batch_size) + 1
+                            total_batches = (total_emails + batch_size - 1) // batch_size
                             
-                            status_text.text(f"Sending to {target_email} ({i+1}/{len(df)})...")
+                            status_text.text(f"Processing Batch {current_batch_num}/{total_batches} ({batch_start+1}-{batch_end})...")
                             
-                            success, msg = send_email(smtp_settings, target_email, p_curr_sub, p_curr_body, uploaded_attachments)
-                            results.append({"Email": target_email, "Status": "Sent" if success else "Failed", "Error": msg})
+                            for i, r in batch_df.iterrows():
+                                # Get correct email and name
+                                target_email = r.get(email_col)
+                                target_name = r.get(name_col, '')
+                                
+                                # Personalize
+                                p_curr_body = st.session_state.get('email_body', '')
+                                p_curr_sub = email_subject.replace("{Name}", str(target_name))
+                                for col in df.columns:
+                                    p_curr_body = p_curr_body.replace(f"{{{col}}}", str(r[col]))
+                                
+                                # status_text.text(f"Sending to {target_email} ({i+1}/{len(df)})...") # Noisy if batch status is better
+                                
+                                success, msg = send_email(smtp_settings, target_email, p_curr_sub, p_curr_body, uploaded_attachments)
+                                results.append({"Email": target_email, "Status": "Sent" if success else "Failed", "Error": msg})
+                                
+                                # Update global progress
+                                global_idx = i + 1  # i is index from original df if referenced correctly? Wait, iterrows preserves index. 
+                                # But let's calculate progress based on count processed.
+                                processed_count = len(results)
+                                progress_bar.progress(processed_count / total_emails)
+                                
+                                # Small delay between individual emails to separate them slightly? 
+                                # Maybe not needed if batch pause is main mechanism. 
+                                # time.sleep(0.1) 
                             
-                            progress_bar.progress((i + 1) / len(df))
-                            time.sleep(1) # Rate limit safety
+                            # Pause between batches (if not the last one)
+                            if batch_end < total_emails:
+                                with st.spinner(f"⏸️ Batch {current_batch_num} done. Pausing for {pause_seconds}s to respect rate limits..."):
+                                    time.sleep(pause_seconds)
                         
                         status_text.text("✅ Bulk sending finished!")
-                        st.success("Campaign Completed!")
+                        st.success(f"Campaign Completed! Sent {len(results)} emails.")
                         st.dataframe(pd.DataFrame(results))
                         
     else:
